@@ -1,9 +1,8 @@
-torch
-gym
-numpy
-stable-baselines3
-tensorboard
-mujoco
-mujoco-python-viewer
+torch==1.13.1
+numpy==1.23.0
+stable-baselines3==1.7.0
+tensorboard==2.12.0
+mujoco==2.3.2
+mujoco-python-viewer==0.1.2
 pyyaml
 hydra-core

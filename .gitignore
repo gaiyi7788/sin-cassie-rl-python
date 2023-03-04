@@ -3,3 +3,4 @@ scripts/outputs/*
 envs/cassie/__pycache__/*
 utils/__pycache__/*
 .idea/*
+_venv_/*

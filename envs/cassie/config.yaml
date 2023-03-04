@@ -22,7 +22,7 @@ trainer:
   n_eval_episodes: 10
 
 env:
-  num_envs: 16
+  num_envs: 8
   state_buffer_size: 1
   time_limit: 600  # 最大600个step
 

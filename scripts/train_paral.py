@@ -72,8 +72,10 @@ def run_train(cfg: DictConfig) -> None:
                 tensorboard_log=log_dir, device=cfg['trainer']['device'])
     model.is_tb_set = False
 
-    model.learn(total_timesteps=int(4e7), n_eval_episodes=cfg['trainer']['n_eval_episodes'],
-                callback=TensorboardCallback(log_dir=log_dir))
+    model.learn(total_timesteps=int(4e7), callback=TensorboardCallback(log_dir=log_dir))
+
+    # model.learn(total_timesteps=int(4e7), n_eval_episodes=cfg['trainer']['n_eval_episodes'],
+    #             callback=TensorboardCallback(log_dir=log_dir))
     # model.save("ppo_cassie")
 
 
