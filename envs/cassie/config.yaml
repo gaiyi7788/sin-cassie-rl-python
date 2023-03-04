@@ -8,7 +8,7 @@ system: # 机器人系统参数
   mjcf_path: "/resources/robots/cassie/cassie.xml"
   log_path: &log_path
     dir: ../log/Cassie/${now:%Y-%m-%d}/${now:%H-%M-%S}
-  visual: False
+  visual: True
   dynamics_randomization: True
 
 trainer:
@@ -20,6 +20,8 @@ trainer:
   device: "cuda:0"
 
   n_eval_episodes: 10
+  resume: True
+  resume_path: ../log/Cassie/2023-03-03/21-43-30/model_saved/ppo_cassie_307200.zip
 
 env:
   num_envs: 8
@@ -39,7 +41,7 @@ init_state:
   default_right_joint_angles: [-0.0045, 0.0, 0.4973, -1.1997, -1.5968]
 
 control:
-  # PD Drive parameters:
+  # PD Drive parameters: PD参数左右腿对称
   P: [100.0, 100.0,  88.0,  96.0,  50.0]
   D: [ 10.0,  10.0,   8.0,   9.6,   5.0]
   # action scale: target angle = actionScale * action + defaultAngle

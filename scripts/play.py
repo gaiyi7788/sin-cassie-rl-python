@@ -20,7 +20,7 @@ from envs.cassie.cassie import CassieRefEnv
 def run_play(cfg: DictConfig) -> None:
     env = CassieRefEnv(cfg=cfg)
     env = NormalizeActionWrapper(env)
-    model = PPO.load("../log/Cassie/2023-03-03/21-43-30/model_saved/ppo_cassie_307200.zip", env)
+    model = PPO.load("../log/Cassie/2023-03-04/18-04-34/model_saved/ppo_cassie_665600.zip", env)
     mean_reward, std_reward = evaluate_policy(model, model.get_env(), n_eval_episodes=10)
     obs = env.reset()
     for i in range(10000):

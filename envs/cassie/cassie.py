@@ -17,56 +17,60 @@ class CassieRefEnv(gym.Env):
     def __init__(self, cfg, **kwargs):
         self.config = cfg
         self.model = self.config['system']['root_path'] + self.config['system']['mjcf_path']
-        self.visual = self.config['system']['visual']
+        self.visual = self.config['system']['visual'] # True for render
         self.model = mujoco.MjModel.from_xml_path(self.model)
         self.data = mujoco.MjData(self.model)
         if self.visual:
             self.viewer = mujoco_viewer.MujocoViewer(self.model, self.data)
-
+        
+        # for dynamic randomization
         self.dynamics_randomization = self.config['system']['dynamics_randomization']
         self.termination = False
 
-        # state buffer
+        # state buffer (暂时不知道啥用)
         self.state_buffer = []
-        self.buffer_size = self.config['env']['state_buffer_size']  # 3
+        self.buffer_size = self.config['env']['state_buffer_size']  # 1
 
-        # Observation space and State space
+        # Observation space and State space # 14+14+4+3+3+1+2+2
         self.observation_space = spaces.Box(low=-np.inf, high=np.inf, shape=(self.buffer_size * 39 + 2 + 2,))
         # self.action_space = spaces.Box(low=np.array([-1] * 10), high=np.array([1] * 10))
-
+        # 10个actuator joint
         self.action_high = np.array([0.26, 0.39, 0.9, 0.55, 0.8, 0.26, 0.39, 0.9, 0.55, 0.8], dtype=np.float32)
         self.action_space = spaces.Box(-self.action_high, self.action_high, dtype=np.float32)
 
         self.P = np.array(self.config['control']['P'])
         self.D = np.array(self.config['control']['D'])
-        self.foot_pos = [0] * 6
-        self.joint_vel_left = np.zeros(5, dtype=np.float32)
+        self.foot_pos = [0] * 6 # 6维向量
+        self.joint_vel_left = np.zeros(5, dtype=np.float32) # 每条腿5个关节
         self.joint_vel_right = np.zeros(5, dtype=np.float32)
 
-        self.simrate = self.config['control']['decimation']  # simulate X mujoco steps with same pd target. 50 brings simulation from 2000Hz to exactly 40Hz
+        # simulate X mujoco steps with same pd target. 50 brings simulation from 2000Hz to exactly 40Hz
+        self.simrate = self.config['control']['decimation']  
         self.time = 0  # number of time steps in current episode
         self.phase = 0  # portion of the phase the robot is in
         self.counter = 0  # number of phase cycles completed in episode
         self.time_limit = self.config['env']['time_limit']
+        # 相对于初始位置的参考位置
         self.offset = np.array(self.config['init_state']['default_left_joint_angles']
                              + self.config['init_state']['default_right_joint_angles'])
         self.time_buf = 0
 
         self.max_speed = self.config['commands']['lin_vel_x'][1]
         self.min_speed = self.config['commands']['lin_vel_x'][0]
+        # 侧向速度
         self.max_side_speed = self.config['commands']['lin_vel_y'][1]
         self.min_side_speed = self.config['commands']['lin_vel_y'][0]
 
         #### Dynamics Randomization ####
 
-        self.max_pitch_incline = 0.03
-        self.max_roll_incline = 0.03
-        self.encoder_noise = 0.01
+        self.max_pitch_incline = 0.03 # 地面pitch坡度
+        self.max_roll_incline = 0.03 # 地面roll坡度
+        self.encoder_noise = 0.01 # 阻尼
         self.damping_low = 0.3
         self.damping_high = 5.0
         self.mass_low = 0.5
         self.mass_high = 1.5
-        self.fric_low = 0.4
+        self.fric_low = 0.4 # 摩擦力
         self.fric_high = 1.1
         self.speed = np.random.uniform(self.min_speed, self.max_speed)
         self.side_speed = np.random.uniform(self.min_side_speed, self.max_side_speed)
@@ -103,12 +107,12 @@ class CassieRefEnv(gym.Env):
     def custom_footheight(self):
         # 定制化的脚步高度，在sin<0时，取0
         phase = self.phase
-        h = 0.15
+        h = 0.15 # delta_h = 0.2*h = 0.015
         h1 = max(0, h * np.sin(2 * np.pi / 28 * phase) - 0.2 * h)
         h2 = max(0, h * np.sin(np.pi + 2 * np.pi / 28 * phase) - 0.2 * h)
         return [h1, h2]
 
-    def get_foot_pos(self):
+    def get_foot_pos(self): # xpos对应frame，根据xml中asset mesh的顺序
         # left foot no 13 , 13*3=39
         left_foot_pos = np.copy(self.data.xpos[13])
         # right foot no 25 , 25*3=75
@@ -118,9 +122,9 @@ class CassieRefEnv(gym.Env):
         left_foot_pos[2] = left_foot_pos[2] - offset_footJoint2midFoot
         right_foot_pos[2] = right_foot_pos[2] - offset_footJoint2midFoot
 
-        self.foot_pos = np.concatenate([left_foot_pos, right_foot_pos])
+        return np.concatenate([left_foot_pos, right_foot_pos])
 
-    def set_const(self):
+    def set_const(self): # initial pos
         qpos_init = [0, 0, 1.01, 1, 0, 0, 0,
                    0.0045, 0, 0.4973, 0.9785, -0.0164, 0.01787, -0.2049,
                    -1.1997, 0, 1.4267, 0, -1.5244, 1.5244, -1.5968,
@@ -142,6 +146,7 @@ class CassieRefEnv(gym.Env):
     def step_simulation(self, action):
         target = action + self.offset
 
+        # 速度进行了一个微调，为了保证连贯性也很合理
         self.joint_vel_left[0] = 0.7 * self.joint_vel_left[0] + 0.3 * self.data.qvel[6]
         self.joint_vel_left[1] = 0.7 * self.joint_vel_left[1] + 0.3 * self.data.qvel[7]
         self.joint_vel_left[2] = 0.7 * self.joint_vel_left[2] + 0.3 * self.data.qvel[8]
@@ -166,35 +171,6 @@ class CassieRefEnv(gym.Env):
         self.data.ctrl[8] = self.P[3] * (target[8] - self.data.qpos[28]) - self.D[3] * self.joint_vel_right[3]
         self.data.ctrl[9] = self.P[4] * (target[9] - self.data.qpos[34]) - self.D[4] * self.joint_vel_right[4]
 
-        # self.data.ctrl[0] = self.P[0] * (target[0] - self.data.sensordata[0]) - self.D[0] * self.data.qvel[6]
-        # self.data.ctrl[1] = self.P[1] * (target[1] - self.data.sensordata[1]) - self.D[1] * self.data.qvel[7]
-        # self.data.ctrl[2] = self.P[2] * (target[2] - self.data.sensordata[2]) - self.D[2] * self.data.qvel[8]
-        # self.data.ctrl[3] = self.P[3] * (target[3] - self.data.sensordata[3]) - self.D[3] * self.data.qvel[12]
-        # self.data.ctrl[4] = self.P[4] * (target[4] - self.data.sensordata[4]) - self.D[4] * self.data.qvel[18]
-        #
-        # self.data.ctrl[5] = self.P[0] * (target[5] - self.data.sensordata[8]) - self.D[0] * self.data.qvel[19]
-        # self.data.ctrl[6] = self.P[1] * (target[6] - self.data.sensordata[9]) - self.D[1] * self.data.qvel[20]
-        # self.data.ctrl[7] = self.P[2] * (target[7] - self.data.sensordata[10]) - self.D[2] * self.data.qvel[21]
-        # self.data.ctrl[8] = self.P[3] * (target[8] - self.data.sensordata[11]) - self.D[3] * self.data.qvel[25]
-        # self.data.ctrl[9] = self.P[4] * (target[9] - self.data.sensordata[12]) - self.D[4] * self.data.qvel[31]
-
-        # self.data.ctrl[0] = self.P[0] * (target[0] - self.data.qpos[7]) - self.D[0] * self.data.qvel[6]
-        # self.data.ctrl[1] = self.P[1] * (target[1] - self.data.qpos[8]) - self.D[1] * self.data.qvel[7]
-        # self.data.ctrl[2] = self.P[2] * (target[2] - self.data.qpos[9]) - self.D[2] * self.data.qvel[8]
-        # self.data.ctrl[3] = self.P[3] * (target[3] - self.data.qpos[14]) - self.D[3] * self.data.qvel[12]
-        # self.data.ctrl[4] = self.P[4] * (target[4] - self.data.qpos[20]) - self.D[4] * self.data.qvel[18]
-        #
-        # self.data.ctrl[5] = self.P[0] * (target[5] - self.data.qpos[21]) - self.D[0] * self.data.qvel[19]
-        # self.data.ctrl[6] = self.P[1] * (target[6] - self.data.qpos[22]) - self.D[1] * self.data.qvel[20]
-        # self.data.ctrl[7] = self.P[2] * (target[7] - self.data.qpos[23]) - self.D[2] * self.data.qvel[21]
-        # self.data.ctrl[8] = self.P[3] * (target[8] - self.data.qpos[28]) - self.D[3] * self.data.qvel[25]
-        # self.data.ctrl[9] = self.P[4] * (target[9] - self.data.qpos[34]) - self.D[4] * self.data.qvel[31]
-
-        # for i in range(5):
-        #     left_leg_torque = self.P[i] * (target[i] - self.data.sensordata[i]) - self.D[i] * self.data.sensordata[i+10]
-        #     right_leg_torque = self.P[i] * (target[i+5] - self.data.sensordata[i+8]) - self.D[i] * self.data.sensordata[i+5+10]
-        #     self.data.ctrl[i] = left_leg_torque
-        #     self.data.ctrl[i+5] = right_leg_torque
         mujoco.mj_step(self.model, self.data)
 
     def step(self, action):
@@ -210,7 +186,7 @@ class CassieRefEnv(gym.Env):
 
         obs = self.get_state()
 
-        self.get_foot_pos()
+        self.foot_pos = self.get_foot_pos()
         # 保持身体高度
         xpos, ypos, height = self.qpos[0], self.qpos[1], self.qpos[2]
         xtarget, ytarget, ztarget = self.ref_pos[0], self.ref_pos[1], self.ref_pos[2]
@@ -340,12 +316,12 @@ class CassieRefEnv(gym.Env):
         self.set_const()
         return self.get_state()
 
-    def get_state(self):
+    def get_state(self): # get_obs
         self.qpos = np.copy(self.data.qpos)  # dim=35 see cassiemujoco.h for details
         self.qvel = np.copy(self.data.qvel)  # dim=32
         self.state_buffer.append((self.qpos, self.qvel))
 
-        if len(self.state_buffer) > self.buffer_size:
+        if len(self.state_buffer) > self.buffer_size: # buffer有限制，估计是可以用来给policy输入历史信息
             self.state_buffer.pop(0)
         else:
             while len(self.state_buffer) < self.buffer_size:
@@ -460,6 +436,7 @@ class CassieRefEnv(gym.Env):
         # 修复int错误
         pose = np.array([0] * 3, dtype=np.float32)
         vel = np.array([0] * 3, dtype=np.float32)
+        # 这里是在算ref值，所以也合理，但是不是结合k-1时刻来算更合适？
         pose[0] = self.speed * (counter * 28 + phase) * (self.simrate / 2000)
         pose[1] = self.side_speed * (counter * 28 + phase) * (self.simrate / 2000)
         pose[2] = 1.03  #
