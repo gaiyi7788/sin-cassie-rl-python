@@ -71,6 +71,7 @@ def run_train(cfg: DictConfig) -> None:
 
     if cfg['trainer']['resume']:
         model = PPO.load(cfg['trainer']['resume_path'], envs)
+        model.tensorboard_log = log_dir
     else:
         # make policy rule
         policy_kwargs = dict(activation_fn=torch.nn.ReLU,
